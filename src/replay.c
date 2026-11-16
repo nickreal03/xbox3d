@@ -605,6 +605,11 @@ b3SphericalJointDef b3RecR_SPHERICALJOINTDEF( b3RecReader* rdr )
 	def.targetRotation = b3RecR_QUAT( rdr );
 	def.enableConeLimit = b3RecR_BOOL( rdr );
 	def.coneAngle = b3RecR_F32( rdr );
+	def.enableEllipseLimit = b3RecR_BOOL( rdr );
+	def.ellipseCenterX = b3RecR_F32( rdr );
+	def.ellipseCenterY = b3RecR_F32( rdr );
+	def.ellipseRadiusX = b3RecR_F32( rdr );
+	def.ellipseRadiusY = b3RecR_F32( rdr );
 	def.enableTwistLimit = b3RecR_BOOL( rdr );
 	def.lowerTwistAngle = b3RecR_F32( rdr );
 	def.upperTwistAngle = b3RecR_F32( rdr );

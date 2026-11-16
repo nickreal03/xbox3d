@@ -267,14 +267,89 @@ b3Vec3 b3GetSphericalJointTorque( b3World* world, b3JointSim* base )
 	// Cone axis is the z-axis of body A.
 	b3Vec3 coneAxis = b3RotateVector( qA, b3Vec3_axisZ );
 	b3Vec3 twistAxis = b3RotateVector( qB, b3Vec3_axisZ );
-	b3Vec3 swingAxis = b3Normalize( b3Cross( coneAxis, twistAxis ) );
-
 	b3SphericalJoint* joint = &base->sphericalJoint;
+	b3Vec3 swingAxis = joint->enableEllipseLimit ? joint->swingAxis : b3Normalize( b3Cross( coneAxis, twistAxis ) );
+
 	b3Vec3 impulse = b3Add( joint->springImpulse, joint->motorImpulse );
 	impulse = b3MulAdd( impulse, joint->lowerTwistImpulse - joint->upperTwistImpulse, twistAxis );
 	impulse = b3MulAdd( impulse, joint->swingImpulse, swingAxis );
 	b3Vec3 torque = b3MulSV( world->inv_h, impulse );
 	return torque;
+}
+
+// Elliptical swing limit (LIONant). With d = relQ * z (frame B's z in frame A), theta = the swing angle and phi = atan2(d.y, d.x), the
+// swing vector is s = theta * a with a = (-sin phi, cos phi) (the axis of the shortest rotation z -> d). The limit is f(s) <= 1 with
+// f = |E (s - c)|, E = diag(1/rx, 1/ry). The separation is C = (1 - f) / |grad f| (radians, > 0 inside), first order exact at the
+// boundary. For a relative angular velocity w (frame A): dtheta/dt = w . e_phi and the arc along phi moves at -w . e_theta, so
+// ds/dt = a (w . e_phi) - b (theta / sin theta) (w . e_theta) with b = (-cos phi, -sin phi). Hence dC/dt = -w . J where, with
+// n = grad f / |grad f| (2D), J = (n.a) e_phi + (n.b) (theta / sin theta) (cos theta b, sin theta). For a circle centred at 0, J is
+// Box3D's cone swing axis and C its cone separation. Returns J in frame A.
+// Look-ahead (h > 0, w = the relative angular velocity in frame A): near a narrow ellipse's tip a fast sideways swing crosses the
+// boundary where the current normal is almost perpendicular to the motion (seen: 1.1 deg past a 25 x 6 deg ellipse at 12 rad/s). When
+// the swing predicted one sub-step ahead is outside and further out, the normal is taken there and C is the distance to the boundary
+// along it (first order), so the speculative impulse sees the approach before the crossing.
+b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, const b3SphericalJoint* joint, b3Vec3 w, float h, float* separation )
+{
+	b3Vec3 d = b3RotateVector( relQ, b3Vec3_axisZ );
+	float sinT = sqrtf( d.x * d.x + d.y * d.y );
+	float cosT = d.z;
+	float theta = b3Atan2( sinT, cosT );
+
+	// a = e_phi (x, y), b = d a / d phi; at theta = 0 any phi works (J reduces to n)
+	float ax = 0.0f, ay = 1.0f;
+	if ( sinT > 1.0e-7f )
+	{
+		ax = -d.y / sinT;
+		ay = d.x / sinT;
+	}
+	float bx = -ay, by = ax;
+
+	float sx = theta * ax, sy = theta * ay;
+	float ex = ( sx - joint->ellipseCenterX ) / joint->ellipseRadiusX;
+	float ey = ( sy - joint->ellipseCenterY ) / joint->ellipseRadiusY;
+	float f = sqrtf( ex * ex + ey * ey );
+
+	// grad f = (ex / rx, ey / ry) / f
+	float gx = ex / joint->ellipseRadiusX, gy = ey / joint->ellipseRadiusY;
+	float g = sqrtf( gx * gx + gy * gy );
+	if ( f < 1.0e-6f || g < 1.0e-12f )
+	{
+		// at the centre: far inside, any direction
+		*separation = 1.0f / b3MaxFloat( 1.0f / joint->ellipseRadiusX, 1.0f / joint->ellipseRadiusY );
+		return (b3Vec3){ ax, ay, 0.0f };
+	}
+
+	float nx = gx / g, ny = gy / g;
+	*separation = ( 1.0f - f ) * f / g;
+
+	float ratio = theta < 1.0e-4f ? 1.0f : theta / b3MaxFloat( sinT, 1.0e-4f );
+	if ( h > 0.0f )
+	{
+		// ds/dt = a (w . e_phi) + b ratio (w . -e_theta)
+		float wa = w.x * ax + w.y * ay;
+		float wt = ratio * ( w.x * cosT * bx + w.y * cosT * by + w.z * sinT );
+		float px = sx + h * ( wa * ax + wt * bx ), py = sy + h * ( wa * ay + wt * by );
+		float qx = ( px - joint->ellipseCenterX ) / joint->ellipseRadiusX;
+		float qy = ( py - joint->ellipseCenterY ) / joint->ellipseRadiusY;
+		float fp = sqrtf( qx * qx + qy * qy );
+		if ( fp > 1.0f && fp > f )
+		{
+			float mx = qx / joint->ellipseRadiusX, my = qy / joint->ellipseRadiusY;
+			float m = sqrtf( mx * mx + my * my );
+			mx /= m;
+			my /= m;
+			// distance from s to the boundary along the predicted normal: (1 - f) / (grad f . n), grad f = (gx, gy) / f
+			float slope = b3MaxFloat( ( gx * mx + gy * my ) / f, 0.1f * g / f );
+			nx = mx;
+			ny = my;
+			*separation = ( 1.0f - f ) / slope;
+		}
+	}
+
+	float na = nx * ax + ny * ay;
+	float nb = nx * bx + ny * by;
+	float k = nb * ratio;
+	return (b3Vec3){ na * ax + k * cosT * bx, na * ay + k * cosT * by, k * sinT };
 }
 
 // Point-to-point constraint
@@ -336,7 +411,16 @@ void b3PrepareSphericalJoint( b3JointSim* base, b3StepContext* context )
 	// Twist axis is the z-axis of body B.
 	b3Vec3 twistAxis = b3RotateVector( joint->frameB.q, b3Vec3_axisZ );
 
-	if ( joint->enableConeLimit )
+	if ( joint->enableEllipseLimit )
+	{
+		float c;
+		b3Vec3 axis = b3RotateVector( joint->frameA.q,
+									   b3SphericalEllipseLimit( b3InvMulQuat( joint->frameA.q, joint->frameB.q ), joint, b3Vec3_zero, 0.0f, &c ) );
+		float k = b3Dot( axis, b3MulMV( invInertiaSum, axis ) );
+		joint->swingMass = k > 0.0f ? 1.0f / k : 0.0f;
+		joint->swingAxis = axis;
+	}
+	else if ( joint->enableConeLimit )
 	{
 		// Swing axis may be zero
 		b3Vec3 swingAxis = b3Normalize( b3Cross( coneAxis, twistAxis ) );
@@ -455,7 +539,8 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 	b3Quat relQ = b3InvMulQuat( quatA, quatB );
 
 	if ( fixedRotation == false &&
-		 ( joint->enableSpring || joint->enableMotor || joint->enableTwistLimit || joint->enableConeLimit ) )
+		 ( joint->enableSpring || joint->enableMotor || joint->enableTwistLimit || joint->enableConeLimit ||
+		   joint->enableEllipseLimit ) )
 	{
 		b3Matrix3 invInertiaSum = b3AddMM( iA, iB );
 		b3Vec3 cdot = b3Sub( wB, wA );
@@ -567,7 +652,40 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 			}
 		}
 
-		if ( joint->enableConeLimit )
+		if ( joint->enableEllipseLimit )
+		{
+			// the normal follows the boundary: axis and mass recomputed every sub-step (one-sided, solved like the cone below)
+			float c;
+			b3Vec3 swingAxis = b3RotateVector(
+				quatA, b3SphericalEllipseLimit( relQ, joint, b3InvRotateVector( quatA, cdot ), context->h, &c ) );
+			float k = b3Dot( swingAxis, b3MulMV( invInertiaSum, swingAxis ) );
+			float swingMass = k > 0.0f ? 1.0f / k : 0.0f;
+			joint->swingAxis = swingAxis;
+
+			float bias = 0.0f;
+			float massScale = 1.0f;
+			float impulseScale = 0.0f;
+			if ( c > 0.0f )
+			{
+				// speculation
+				bias = c * context->inv_h;
+			}
+			else if ( useBias )
+			{
+				bias = base->constraintSoftness.biasRate * c;
+				massScale = base->constraintSoftness.massScale;
+				impulseScale = base->constraintSoftness.impulseScale;
+			}
+
+			float swingCdot = -b3Dot( cdot, swingAxis );
+			float oldImpulse = joint->swingImpulse;
+			float deltaImpulse =
+				b3MaxFloat( -massScale * swingMass * ( swingCdot + bias ) - impulseScale * oldImpulse, -oldImpulse );
+			joint->swingImpulse = oldImpulse + deltaImpulse;
+
+			angularImpulse = b3MulSub( angularImpulse, deltaImpulse, swingAxis );
+		}
+		else if ( joint->enableConeLimit )
 		{
 			float swingAngle = b3GetSwingAngle( relQ );
 
@@ -721,8 +839,34 @@ void b3DrawSphericalJoint( b3DebugDraw* draw, b3JointSim* base, b3WorldTransform
 		draw->DrawSegmentFcn( frameA.p, b3TransformWorldPoint( frameA, p2 ), b3_colorYellow, draw->context );
 	}
 
-	// Swing limit
-	if ( joint->enableConeLimit )
+	// Elliptical swing limit: frame B's z directions on the boundary
+	if ( joint->enableEllipseLimit )
+	{
+		const float radius = 0.1f * scale;
+		b3Vec3 previous = b3Vec3_zero;
+		for ( int index = 0; index <= 2 * kSliceCount; ++index )
+		{
+			float t = 2.0f * index / ( 2 * kSliceCount ) * B3_PI;
+			float sx = joint->ellipseCenterX + joint->ellipseRadiusX * b3Cos( t );
+			float sy = joint->ellipseCenterY + joint->ellipseRadiusY * b3Sin( t );
+			float theta = sqrtf( sx * sx + sy * sy );
+			float s = theta > 1.0e-6f ? b3Sin( theta ) / theta : 1.0f;
+
+			// rotate z about (sx, sy, 0) / theta by theta: (sy, -sx) sin(theta) / theta + z cos(theta)
+			b3Vec3 vertex = { radius * s * sy, -radius * s * sx, radius * b3Cos( theta ) };
+			if ( index > 0 )
+			{
+				draw->DrawSegmentFcn( b3TransformWorldPoint( frameA, previous ), b3TransformWorldPoint( frameA, vertex ), b3_colorCyan,
+									  draw->context );
+			}
+			if ( index % 4 == 0 )
+			{
+				draw->DrawSegmentFcn( frameA.p, b3TransformWorldPoint( frameA, vertex ), b3_colorCyan, draw->context );
+			}
+			previous = vertex;
+		}
+	}
+	else if ( joint->enableConeLimit )
 	{
 		const float radius = 0.1f * scale;
 		float coneRadius = radius * b3Sin( joint->coneAngle );

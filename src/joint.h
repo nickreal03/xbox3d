@@ -219,6 +219,7 @@ typedef struct b3SphericalJoint
 	float lowerTwistAngle;
 	float upperTwistAngle;
 	float coneAngle;
+	float ellipseCenterX, ellipseCenterY, ellipseRadiusX, ellipseRadiusY;
 	b3Quat targetRotation;
 
 	int indexA;
@@ -237,6 +238,7 @@ typedef struct b3SphericalJoint
 	bool enableSpring;
 	bool enableMotor;
 	bool enableConeLimit;
+	bool enableEllipseLimit;
 	bool enableTwistLimit;
 } b3SphericalJoint;
 
@@ -385,6 +387,7 @@ void b3PrepareParallelJoint( b3JointSim* base, b3StepContext* context );
 void b3PreparePrismaticJoint( b3JointSim* base, b3StepContext* context );
 void b3PrepareRevoluteJoint( b3JointSim* base, b3StepContext* context );
 void b3PrepareSphericalJoint( b3JointSim* base, b3StepContext* context );
+b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, const b3SphericalJoint* joint, b3Vec3 w, float h, float* separation );
 void b3PrepareWeldJoint( b3JointSim* base, b3StepContext* context );
 void b3PrepareWheelJoint( b3JointSim* base, b3StepContext* context );
 

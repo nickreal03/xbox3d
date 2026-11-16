@@ -654,6 +654,11 @@ b3JointId b3CreateSphericalJoint( b3WorldId worldId, const b3SphericalJointDef* 
 	joint->sphericalJoint.motorVelocity = def->motorVelocity;
 	joint->sphericalJoint.enableSpring = def->enableSpring;
 	joint->sphericalJoint.enableConeLimit = def->enableConeLimit;
+	joint->sphericalJoint.enableEllipseLimit = def->enableEllipseLimit;
+	joint->sphericalJoint.ellipseCenterX = def->ellipseCenterX;
+	joint->sphericalJoint.ellipseCenterY = def->ellipseCenterY;
+	joint->sphericalJoint.ellipseRadiusX = b3MaxFloat( def->ellipseRadiusX, 1.0e-3f );
+	joint->sphericalJoint.ellipseRadiusY = b3MaxFloat( def->ellipseRadiusY, 1.0e-3f );
 	joint->sphericalJoint.enableTwistLimit = def->enableTwistLimit;
 	joint->sphericalJoint.enableMotor = def->enableMotor;
 
@@ -1091,7 +1096,7 @@ void b3GetJointReaction( b3World* world, b3JointSim* sim, float invTimeStep, flo
 			// Cone axis is the z-axis of body A.
 			b3Vec3 coneAxis = b3RotateVector( qA, b3Vec3_axisZ );
 			b3Vec3 twistAxis = b3RotateVector( qB, b3Vec3_axisZ );
-			b3Vec3 swingAxis = b3Normalize( b3Cross( coneAxis, twistAxis ) );
+			b3Vec3 swingAxis = joint->enableEllipseLimit ? joint->swingAxis : b3Normalize( b3Cross( coneAxis, twistAxis ) );
 
 			b3Vec3 impulse = b3Add( joint->springImpulse, joint->motorImpulse );
 			impulse = b3MulAdd( impulse, joint->lowerTwistImpulse - joint->upperTwistImpulse, twistAxis );
@@ -1402,7 +1407,13 @@ float b3Joint_GetAngularSeparation( b3JointId jointId )
 		{
 			b3SphericalJoint* sphericalJoint = &base->sphericalJoint;
 			float sum = 0.0f;
-			if ( sphericalJoint->enableConeLimit )
+			if ( sphericalJoint->enableEllipseLimit )
+			{
+				float c;
+				b3SphericalEllipseLimit( relQ, sphericalJoint, b3Vec3_zero, 0.0f, &c );
+				sum += b3MaxFloat( 0.0f, -c );
+			}
+			else if ( sphericalJoint->enableConeLimit )
 			{
 				float swingAngle = b3GetSwingAngle( relQ );
 				sum += b3MaxFloat( 0.0f, swingAngle - sphericalJoint->coneAngle );

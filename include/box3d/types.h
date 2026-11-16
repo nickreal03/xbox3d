@@ -918,6 +918,17 @@ typedef struct b3SphericalJointDef
 	/// The angle for the cone limit in radians. Valid range is [0, pi]
 	float coneAngle;
 
+	/// A flag to enable the elliptical swing limit (replaces the cone limit when both are on). The swing is the shortest rotation
+	/// taking frame A's z-axis to frame B's z-axis, as a rotation vector s in frame A's x-y plane (angle times axis). The limit is
+	/// ((s.x - ellipseCenterX) / ellipseRadiusX)^2 + ((s.y - ellipseCenterY) / ellipseRadiusY)^2 <= 1. Any size below pi.
+	bool enableEllipseLimit;
+
+	/// The ellipse centre (radians, swing vector components in frame A's x and y)
+	float ellipseCenterX, ellipseCenterY;
+
+	/// The ellipse radii (radians, positive; a tiny radius locks that axis, a huge one frees it)
+	float ellipseRadiusX, ellipseRadiusY;
+
 	/// A flag to enable the twist limit. The twist is centered on the frameB z-axis.
 	bool enableTwistLimit;
 
