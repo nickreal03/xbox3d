@@ -288,7 +288,10 @@ b3Vec3 b3GetSphericalJointTorque( b3World* world, b3JointSim* base )
 // boundary where the current normal is almost perpendicular to the motion (seen: 1.1 deg past a 25 x 6 deg ellipse at 12 rad/s). When
 // the swing predicted one sub-step ahead is outside and further out, the normal is taken there and C is the distance to the boundary
 // along it (first order), so the speculative impulse sees the approach before the crossing.
-b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, const b3SphericalJoint* joint, b3Vec3 w, float h, float* separation )
+// Continuity: a swing pushed through 180 deg (a knee bent to 150 deg pressed further by the floor) flips the principal swing vector to
+// the other side (s -> -s): the limit would see the joint far past the opposite end and throw it. Of the two vectors for the same
+// direction (theta a and (theta - 2 pi) a) the one nearer the last solved swing is taken, and remembered.
+b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, b3SphericalJoint* joint, b3Vec3 w, float h, float* separation )
 {
 	b3Vec3 d = b3RotateVector( relQ, b3Vec3_axisZ );
 	float sinT = sqrtf( d.x * d.x + d.y * d.y );
@@ -304,7 +307,19 @@ b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, const b3SphericalJoint* joint, b3Ve
 	}
 	float bx = -ay, by = ax;
 
+	if ( theta > 0.5f * B3_PI )
+	{
+		float alt = theta - 2.0f * B3_PI;
+		float d0x = theta * ax - joint->lastSwingX, d0y = theta * ay - joint->lastSwingY;
+		float d1x = alt * ax - joint->lastSwingX, d1y = alt * ay - joint->lastSwingY;
+		if ( d1x * d1x + d1y * d1y < d0x * d0x + d0y * d0y )
+		{
+			theta = alt;
+		}
+	}
 	float sx = theta * ax, sy = theta * ay;
+	joint->lastSwingX = sx;
+	joint->lastSwingY = sy;
 	float ex = ( sx - joint->ellipseCenterX ) / joint->ellipseRadiusX;
 	float ey = ( sy - joint->ellipseCenterY ) / joint->ellipseRadiusY;
 	float f = sqrtf( ex * ex + ey * ey );
@@ -322,7 +337,7 @@ b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, const b3SphericalJoint* joint, b3Ve
 	float nx = gx / g, ny = gy / g;
 	*separation = ( 1.0f - f ) * f / g;
 
-	float ratio = theta < 1.0e-4f ? 1.0f : theta / b3MaxFloat( sinT, 1.0e-4f );
+	float ratio = b3AbsFloat( theta ) < 1.0e-4f ? 1.0f : theta / b3MaxFloat( sinT, 1.0e-4f );
 	if ( h > 0.0f )
 	{
 		// ds/dt = a (w . e_phi) + b ratio (w . -e_theta)
@@ -342,7 +357,9 @@ b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, const b3SphericalJoint* joint, b3Ve
 			float slope = b3MaxFloat( ( gx * mx + gy * my ) / f, 0.1f * g / f );
 			nx = mx;
 			ny = my;
-			*separation = ( 1.0f - f ) / slope;
+			// past the boundary never deeper than the gradient says: a turned normal with a tiny slope made a 10x deeper
+			// "penetration" whose correction threw a knee sideways (a drop exploded)
+			*separation = f < 1.0f ? ( 1.0f - f ) / slope : b3MaxFloat( ( 1.0f - f ) / slope, *separation );
 		}
 	}
 
@@ -591,6 +608,27 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 			// todo does an updated twist axis help?
 
 			b3Vec3 twistJacobian = joint->twistJacobian;
+			float twistMass = joint->twistMass;
+			if ( joint->enableEllipseLimit )
+			{
+				// LIONant: with the elliptical swing the twist is limited at any swing (no 90 deg cone keeps it small), where the twist
+				// Jacobian turns fast (its swing part is tan(swing / 2)): recomputed every sub-step from relQ, like the ellipse's axis.
+				// twist = 2 atan2(z, w) and relQ' = 1/2 w_A relQ give d twist / dt = w_A . ((w x + z y... see below) / (z^2 + w^2))
+				// J_A = ((w y + z x) / (z^2 + w^2), (z y - w x) / (z^2 + w^2), 1); the twist is undefined at a 180 deg swing (z = w = 0)
+				float zw = relQ.v.z * relQ.v.z + relQ.s * relQ.s;
+				if ( zw < 1.0e-6f )
+				{
+					twistMass = 0.0f;
+				}
+				else
+				{
+					b3Vec3 jacA = { ( relQ.s * relQ.v.y + relQ.v.z * relQ.v.x ) / zw, ( relQ.v.z * relQ.v.y - relQ.s * relQ.v.x ) / zw, 1.0f };
+					twistJacobian = b3RotateVector( quatA, jacA );
+					float k = b3Dot( twistJacobian, b3MulMV( invInertiaSum, twistJacobian ) );
+					twistMass = k > 0.0f ? 1.0f / k : 0.0f;
+				}
+				joint->twistJacobian = twistJacobian;
+			}
 			b3Vec3 twistResponse = b3MulMV( invInertiaSum, twistJacobian );
 
 			// Lower limit
@@ -614,7 +652,7 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 				float twistCdot = b3Dot( cdot, twistJacobian );
 				float oldImpulse = joint->lowerTwistImpulse;
 				float deltaImpulse =
-					b3MaxFloat( -massScale * joint->twistMass * ( twistCdot + bias ) - impulseScale * oldImpulse, -oldImpulse );
+					b3MaxFloat( -massScale * twistMass * ( twistCdot + bias ) - impulseScale * oldImpulse, -oldImpulse );
 				joint->lowerTwistImpulse = oldImpulse + deltaImpulse;
 
 				cdot = b3MulAdd( cdot, deltaImpulse, twistResponse );
@@ -643,7 +681,7 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 				float twistCdot = -b3Dot( cdot, twistJacobian );
 				float oldImpulse = joint->upperTwistImpulse;
 				float deltaImpulse =
-					b3MaxFloat( -massScale * joint->twistMass * ( twistCdot + bias ) - impulseScale * oldImpulse, -oldImpulse );
+					b3MaxFloat( -massScale * twistMass * ( twistCdot + bias ) - impulseScale * oldImpulse, -oldImpulse );
 				joint->upperTwistImpulse = oldImpulse + deltaImpulse;
 
 				// sign flipped on applied impulse
