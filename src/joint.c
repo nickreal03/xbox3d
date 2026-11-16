@@ -1411,7 +1411,7 @@ float b3Joint_GetAngularSeparation( b3JointId jointId )
 			{
 				float c;
 				b3SphericalJoint copy = *sphericalJoint; // a query: the joint's swing history is the solver's
-				b3SphericalEllipseLimit( relQ, &copy, b3Vec3_zero, 0.0f, &c );
+				b3SphericalEllipseLimit( relQ, &copy, &c );
 				sum += b3MaxFloat( 0.0f, -c );
 			}
 			else if ( sphericalJoint->enableConeLimit )

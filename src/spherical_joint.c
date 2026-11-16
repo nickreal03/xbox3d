@@ -284,14 +284,10 @@ b3Vec3 b3GetSphericalJointTorque( b3World* world, b3JointSim* base )
 // ds/dt = a (w . e_phi) - b (theta / sin theta) (w . e_theta) with b = (-cos phi, -sin phi). Hence dC/dt = -w . J where, with
 // n = grad f / |grad f| (2D), J = (n.a) e_phi + (n.b) (theta / sin theta) (cos theta b, sin theta). For a circle centred at 0, J is
 // Box3D's cone swing axis and C its cone separation. Returns J in frame A.
-// Look-ahead (h > 0, w = the relative angular velocity in frame A): near a narrow ellipse's tip a fast sideways swing crosses the
-// boundary where the current normal is almost perpendicular to the motion (seen: 1.1 deg past a 25 x 6 deg ellipse at 12 rad/s). When
-// the swing predicted one sub-step ahead is outside and further out, the normal is taken there and C is the distance to the boundary
-// along it (first order), so the speculative impulse sees the approach before the crossing.
 // Continuity: a swing pushed through 180 deg (a knee bent to 150 deg pressed further by the floor) flips the principal swing vector to
 // the other side (s -> -s): the limit would see the joint far past the opposite end and throw it. Of the two vectors for the same
 // direction (theta a and (theta - 2 pi) a) the one nearer the last solved swing is taken, and remembered.
-b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, b3SphericalJoint* joint, b3Vec3 w, float h, float* separation )
+b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, b3SphericalJoint* joint, float* separation )
 {
 	b3Vec3 d = b3RotateVector( relQ, b3Vec3_axisZ );
 	float sinT = sqrtf( d.x * d.x + d.y * d.y );
@@ -338,30 +334,6 @@ b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, b3SphericalJoint* joint, b3Vec3 w, 
 	*separation = ( 1.0f - f ) * f / g;
 
 	float ratio = b3AbsFloat( theta ) < 1.0e-4f ? 1.0f : theta / b3MaxFloat( sinT, 1.0e-4f );
-	if ( h > 0.0f )
-	{
-		// ds/dt = a (w . e_phi) + b ratio (w . -e_theta)
-		float wa = w.x * ax + w.y * ay;
-		float wt = ratio * ( w.x * cosT * bx + w.y * cosT * by + w.z * sinT );
-		float px = sx + h * ( wa * ax + wt * bx ), py = sy + h * ( wa * ay + wt * by );
-		float qx = ( px - joint->ellipseCenterX ) / joint->ellipseRadiusX;
-		float qy = ( py - joint->ellipseCenterY ) / joint->ellipseRadiusY;
-		float fp = sqrtf( qx * qx + qy * qy );
-		if ( fp > 1.0f && fp > f )
-		{
-			float mx = qx / joint->ellipseRadiusX, my = qy / joint->ellipseRadiusY;
-			float m = sqrtf( mx * mx + my * my );
-			mx /= m;
-			my /= m;
-			// distance from s to the boundary along the predicted normal: (1 - f) / (grad f . n), grad f = (gx, gy) / f
-			float slope = b3MaxFloat( ( gx * mx + gy * my ) / f, 0.1f * g / f );
-			nx = mx;
-			ny = my;
-			// past the boundary never deeper than the gradient says: a turned normal with a tiny slope made a 10x deeper
-			// "penetration" whose correction threw a knee sideways (a drop exploded)
-			*separation = f < 1.0f ? ( 1.0f - f ) / slope : b3MaxFloat( ( 1.0f - f ) / slope, *separation );
-		}
-	}
 
 	float na = nx * ax + ny * ay;
 	float nb = nx * bx + ny * by;
@@ -432,7 +404,7 @@ void b3PrepareSphericalJoint( b3JointSim* base, b3StepContext* context )
 	{
 		float c;
 		b3Vec3 axis = b3RotateVector( joint->frameA.q,
-									   b3SphericalEllipseLimit( b3InvMulQuat( joint->frameA.q, joint->frameB.q ), joint, b3Vec3_zero, 0.0f, &c ) );
+									   b3SphericalEllipseLimit( b3InvMulQuat( joint->frameA.q, joint->frameB.q ), joint, &c ) );
 		float k = b3Dot( axis, b3MulMV( invInertiaSum, axis ) );
 		joint->swingMass = k > 0.0f ? 1.0f / k : 0.0f;
 		joint->swingAxis = axis;
@@ -695,7 +667,7 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 			// the normal follows the boundary: axis and mass recomputed every sub-step (one-sided, solved like the cone below)
 			float c;
 			b3Vec3 swingAxis = b3RotateVector(
-				quatA, b3SphericalEllipseLimit( relQ, joint, b3InvRotateVector( quatA, cdot ), context->h, &c ) );
+				quatA, b3SphericalEllipseLimit( relQ, joint, &c ) );
 			float k = b3Dot( swingAxis, b3MulMV( invInertiaSum, swingAxis ) );
 			float swingMass = k > 0.0f ? 1.0f / k : 0.0f;
 			joint->swingAxis = swingAxis;

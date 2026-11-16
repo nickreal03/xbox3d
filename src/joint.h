@@ -388,7 +388,7 @@ void b3PrepareParallelJoint( b3JointSim* base, b3StepContext* context );
 void b3PreparePrismaticJoint( b3JointSim* base, b3StepContext* context );
 void b3PrepareRevoluteJoint( b3JointSim* base, b3StepContext* context );
 void b3PrepareSphericalJoint( b3JointSim* base, b3StepContext* context );
-b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, b3SphericalJoint* joint, b3Vec3 w, float h, float* separation );
+b3Vec3 b3SphericalEllipseLimit( b3Quat relQ, b3SphericalJoint* joint, float* separation );
 void b3PrepareWeldJoint( b3JointSim* base, b3StepContext* context );
 void b3PrepareWheelJoint( b3JointSim* base, b3StepContext* context );
 
