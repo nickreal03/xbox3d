@@ -208,6 +208,69 @@ void b3SphericalJoint_EnableMotor( b3JointId jointId, bool enableMotor )
 	base->sphericalJoint.enableMotor = enableMotor;
 }
 
+void b3SphericalJoint_EnableDrive( b3JointId jointId, bool enableDrive )
+{
+	b3World* world = b3GetWorld( jointId.world0 );
+	B3_REC( world, SphericalJointEnableDrive, jointId, enableDrive );
+	b3JointSim* base = b3GetJointSimCheckType( jointId, b3_sphericalJoint );
+	base->sphericalJoint.enableDrive = enableDrive;
+	base->sphericalJoint.driveImpulse = b3Vec3_zero;
+}
+
+bool b3SphericalJoint_IsDriveEnabled( b3JointId jointId )
+{
+	b3JointSim* base = b3GetJointSimCheckType( jointId, b3_sphericalJoint );
+	return base->sphericalJoint.enableDrive;
+}
+
+void b3SphericalJoint_SetDriveTarget( b3JointId jointId, b3Quat target, b3Vec3 targetVelocity )
+{
+	B3_ASSERT( b3IsValidQuat( target ) );
+	b3World* world = b3GetWorld( jointId.world0 );
+	B3_REC( world, SphericalJointSetDriveTarget, jointId, target, targetVelocity );
+	b3JointSim* base = b3GetJointSimCheckType( jointId, b3_sphericalJoint );
+	base->sphericalJoint.driveTarget = target;
+	base->sphericalJoint.driveTargetVelocity = targetVelocity;
+}
+
+void b3SphericalJoint_SetDriveGains( b3JointId jointId, b3Vec3 kp, b3Vec3 kd, float maxTorque )
+{
+	B3_ASSERT( maxTorque >= 0.0f );
+	b3World* world = b3GetWorld( jointId.world0 );
+	B3_REC( world, SphericalJointSetDriveGains, jointId, kp, kd, maxTorque );
+	b3JointSim* base = b3GetJointSimCheckType( jointId, b3_sphericalJoint );
+	base->sphericalJoint.driveKp = kp;
+	base->sphericalJoint.driveKd = kd;
+	base->sphericalJoint.driveMaxTorque = maxTorque;
+}
+
+b3Vec3 b3SphericalJoint_GetDriveTorque( b3JointId jointId )
+{
+	b3World* world = b3GetWorld( jointId.world0 );
+	b3JointSim* base = b3GetJointSimCheckType( jointId, b3_sphericalJoint );
+	return b3MulSV( world->inv_h, base->sphericalJoint.driveImpulse );
+}
+
+b3Vec3 b3ComputeSphericalDriveTorque( b3Quat relQ, b3Vec3 relW, b3Quat target, b3Vec3 targetVelocity, b3Vec3 kp, b3Vec3 kd, float maxTorque )
+{
+	// e = Log( target relQ^-1 ): the rotation (frame A) taking the current relative rotation to the target, shortest branch
+	b3Quat d = b3MulQuat( target, b3Conjugate( relQ ) );
+	if ( d.s < 0.0f )
+	{
+		d = b3NegateQuat( d );
+	}
+	float sinHalf = b3Length( d.v );
+	b3Vec3 e = sinHalf > 1.0e-6f ? b3MulSV( 2.0f * b3Atan2( sinHalf, d.s ) / sinHalf, d.v ) : b3MulSV( 2.0f, d.v );
+	b3Vec3 dw = b3Sub( relW, targetVelocity );
+	b3Vec3 tau = { kp.x * e.x - kd.x * dw.x, kp.y * e.y - kd.y * dw.y, kp.z * e.z - kd.z * dw.z };
+	float len = b3Length( tau );
+	if ( maxTorque > 0.0f && len > maxTorque )
+	{
+		tau = b3MulSV( maxTorque / len, tau );
+	}
+	return tau;
+}
+
 bool b3SphericalJoint_IsMotorEnabled( b3JointId jointId )
 {
 	b3JointSim* base = b3GetJointSimCheckType( jointId, b3_sphericalJoint );
@@ -529,11 +592,22 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 
 	if ( fixedRotation == false &&
 		 ( joint->enableSpring || joint->enableMotor || joint->enableTwistLimit || joint->enableConeLimit ||
-		   joint->enableEllipseLimit ) )
+		   joint->enableEllipseLimit || joint->enableDrive ) )
 	{
 		b3Matrix3 invInertiaSum = b3AddMM( iA, iB );
 		b3Vec3 cdot = b3Sub( wB, wA );
 		b3Vec3 angularImpulse = b3Vec3_zero;
+
+		// Explicit drive (R118): once per sub-step (the biased pass), from the sub-step's start state, before the constraints
+		if ( joint->enableDrive && useBias )
+		{
+			b3Vec3 tau = b3ComputeSphericalDriveTorque( relQ, b3InvRotateVector( quatA, cdot ), joint->driveTarget, joint->driveTargetVelocity,
+														joint->driveKp, joint->driveKd, joint->driveMaxTorque );
+			b3Vec3 impulse = b3MulSV( context->h, b3RotateVector( quatA, tau ) );
+			joint->driveImpulse = impulse;
+			cdot = b3Add( cdot, b3MulMV( invInertiaSum, impulse ) );
+			angularImpulse = b3Add( angularImpulse, impulse );
+		}
 
 		// Solve spring
 		if ( joint->enableSpring )

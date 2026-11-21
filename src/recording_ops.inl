@@ -186,6 +186,11 @@ B3_REC_OP( 0xD2, SphericalJointEnableMotor, RET_NONE, ARG( JOINTID, joint ) ARG(
 B3_REC_OP( 0xD3, SphericalJointSetMotorVelocity, RET_NONE, ARG( JOINTID, joint ) ARG( VEC3, motorVelocity ) )
 B3_REC_OP( 0xD4, SphericalJointSetMaxMotorTorque, RET_NONE, ARG( JOINTID, joint ) ARG( F32, torque ) )
 
+// Spherical joint drive (xLION R118; joint ops 0x90-0xE7 are full)
+B3_REC_OP( 0x81, SphericalJointEnableDrive, RET_NONE, ARG( JOINTID, joint ) ARG( BOOL, enableDrive ) )
+B3_REC_OP( 0x82, SphericalJointSetDriveTarget, RET_NONE, ARG( JOINTID, joint ) ARG( QUAT, target ) ARG( VEC3, targetVelocity ) )
+B3_REC_OP( 0x83, SphericalJointSetDriveGains, RET_NONE, ARG( JOINTID, joint ) ARG( VEC3, kp ) ARG( VEC3, kd ) ARG( F32, maxTorque ) )
+
 // Weld joint
 B3_REC_OP( 0xD5, WeldJointSetLinearHertz, RET_NONE, ARG( JOINTID, joint ) ARG( F32, hertz ) )
 B3_REC_OP( 0xD6, WeldJointSetLinearDampingRatio, RET_NONE, ARG( JOINTID, joint ) ARG( F32, dampingRatio ) )

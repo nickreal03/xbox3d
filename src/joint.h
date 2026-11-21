@@ -223,6 +223,14 @@ typedef struct b3SphericalJoint
 	float lastSwingX, lastSwingY; // the swing vector last solved: keeps it continuous through a 180 deg swing
 	b3Quat targetRotation;
 
+	// the explicit drive (xLION R118: one joint torque law shared with the GPU twin): per sub-step
+	// tau = kp * Log(driveTarget relQ^-1) - kd * (w_rel - driveTargetVelocity), all in frame A, |tau| <= driveMaxTorque
+	b3Quat driveTarget;
+	b3Vec3 driveTargetVelocity;
+	b3Vec3 driveKp, driveKd;
+	float driveMaxTorque;
+	b3Vec3 driveImpulse;
+
 	int indexA;
 	int indexB;
 	b3Transform frameA;
@@ -241,6 +249,7 @@ typedef struct b3SphericalJoint
 	bool enableConeLimit;
 	bool enableEllipseLimit;
 	bool enableTwistLimit;
+	bool enableDrive;
 } b3SphericalJoint;
 
 typedef struct b3WeldJoint

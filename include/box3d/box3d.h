@@ -1626,6 +1626,22 @@ B3_API void b3SphericalJoint_SetMaxMotorTorque( b3JointId jointId, float torque 
 /// Get the spherical joint maximum motor torque, usually in newton-meters
 B3_API float b3SphericalJoint_GetMaxMotorTorque( b3JointId jointId );
 
+/// The explicit drive (xLION R118: one joint torque law shared with the GPU twin). Every sub-step the joint applies
+/// tau = kp * Log(target * relQ^-1) - kd * (w_rel - targetVelocity), component-wise in frame A (relQ = frameA^-1 frameB in world,
+/// w_rel = frameA^-1 (wB - wA), Log = the shortest rotation vector, radians), clamped to |tau| <= maxTorque (0: no cap),
+/// +tau on body B and -tau on body A. Explicit (not a soft constraint): stable while kp h^2 / I and kd h / I stay small.
+B3_API void b3SphericalJoint_EnableDrive( b3JointId jointId, bool enableDrive );
+B3_API bool b3SphericalJoint_IsDriveEnabled( b3JointId jointId );
+/// Target rotation (frame B relative to frame A) and target relative angular velocity (frame A, rad/s).
+B3_API void b3SphericalJoint_SetDriveTarget( b3JointId jointId, b3Quat target, b3Vec3 targetVelocity );
+/// Per-axis gains in frame A: kp in N m / rad, kd in N m s / rad; maxTorque in N m (0: no cap).
+B3_API void b3SphericalJoint_SetDriveGains( b3JointId jointId, b3Vec3 kp, b3Vec3 kd, float maxTorque );
+/// The drive torque applied in the last sub-step, world frame, on body B (N m).
+B3_API b3Vec3 b3SphericalJoint_GetDriveTorque( b3JointId jointId );
+/// The drive law alone (frame A in, frame A out) - the reference the twin's copy is tested against.
+B3_API b3Vec3 b3ComputeSphericalDriveTorque( b3Quat relQ, b3Vec3 relW, b3Quat target, b3Vec3 targetVelocity, b3Vec3 kp, b3Vec3 kd,
+											 float maxTorque );
+
 /**@}*/ // spherical_joint
 
 /**
