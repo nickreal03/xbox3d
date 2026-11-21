@@ -251,7 +251,8 @@ b3Vec3 b3SphericalJoint_GetDriveTorque( b3JointId jointId )
 	return b3MulSV( world->inv_h, base->sphericalJoint.driveImpulse );
 }
 
-b3Vec3 b3ComputeSphericalDriveTorque( b3Quat relQ, b3Vec3 relW, b3Quat target, b3Vec3 targetVelocity, b3Vec3 kp, b3Vec3 kd, float maxTorque )
+b3Vec3 b3ComputeSphericalDriveTorque( b3Quat relQ, b3Vec3 relW, b3Quat target, b3Vec3 targetVelocity, b3Vec3 kp, b3Vec3 kd, float maxTorque,
+									  float h, b3Matrix3 invInertiaA )
 {
 	// e = Log( target relQ^-1 ): the rotation (frame A) taking the current relative rotation to the target, shortest branch
 	b3Quat d = b3MulQuat( target, b3Conjugate( relQ ) );
@@ -262,7 +263,18 @@ b3Vec3 b3ComputeSphericalDriveTorque( b3Quat relQ, b3Vec3 relW, b3Quat target, b
 	float sinHalf = b3Length( d.v );
 	b3Vec3 e = sinHalf > 1.0e-6f ? b3MulSV( 2.0f * b3Atan2( sinHalf, d.s ) / sinHalf, d.v ) : b3MulSV( 2.0f, d.v );
 	b3Vec3 dw = b3Sub( relW, targetVelocity );
-	b3Vec3 tau = { kp.x * e.x - kd.x * dw.x, kp.y * e.y - kd.y * dw.y, kp.z * e.z - kd.z * dw.z };
+	b3Vec3 tau = { kp.x * e.x - kd.x * dw.x - h * kp.x * relW.x, kp.y * e.y - kd.y * dw.y - h * kp.y * relW.y,
+				   kp.z * e.z - kd.z * dw.z - h * kp.z * relW.z };
+	if ( h > 0.0f )
+	{
+		// stable PD: (1 + h G Minv) tau = rhs, G = Kd + h Kp (row i of h G Minv is h g_i Minv row i; b3Matrix3 is column-major)
+		b3Vec3 g = { kd.x + h * kp.x, kd.y + h * kp.y, kd.z + h * kp.z };
+		b3Matrix3 a;
+		a.cx = (b3Vec3){ 1.0f + h * g.x * invInertiaA.cx.x, h * g.y * invInertiaA.cx.y, h * g.z * invInertiaA.cx.z };
+		a.cy = (b3Vec3){ h * g.x * invInertiaA.cy.x, 1.0f + h * g.y * invInertiaA.cy.y, h * g.z * invInertiaA.cy.z };
+		a.cz = (b3Vec3){ h * g.x * invInertiaA.cz.x, h * g.y * invInertiaA.cz.y, 1.0f + h * g.z * invInertiaA.cz.z };
+		tau = b3MulMV( b3InvertMatrix( a ), tau );
+	}
 	float len = b3Length( tau );
 	if ( maxTorque > 0.0f && len > maxTorque )
 	{
@@ -601,8 +613,10 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 		// Explicit drive (R118): once per sub-step (the biased pass), from the sub-step's start state, before the constraints
 		if ( joint->enableDrive && useBias )
 		{
+			b3Matrix3 rA = b3MakeMatrixFromQuat( quatA );
+			b3Matrix3 invInertiaA = b3MulMM( b3Transpose( rA ), b3MulMM( invInertiaSum, rA ) );
 			b3Vec3 tau = b3ComputeSphericalDriveTorque( relQ, b3InvRotateVector( quatA, cdot ), joint->driveTarget, joint->driveTargetVelocity,
-														joint->driveKp, joint->driveKd, joint->driveMaxTorque );
+														joint->driveKp, joint->driveKd, joint->driveMaxTorque, context->h, invInertiaA );
 			b3Vec3 impulse = b3MulSV( context->h, b3RotateVector( quatA, tau ) );
 			joint->driveImpulse = impulse;
 			cdot = b3Add( cdot, b3MulMV( invInertiaSum, impulse ) );
