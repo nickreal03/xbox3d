@@ -190,6 +190,7 @@ B3_REC_OP( 0xD4, SphericalJointSetMaxMotorTorque, RET_NONE, ARG( JOINTID, joint 
 B3_REC_OP( 0x81, SphericalJointEnableDrive, RET_NONE, ARG( JOINTID, joint ) ARG( BOOL, enableDrive ) )
 B3_REC_OP( 0x82, SphericalJointSetDriveTarget, RET_NONE, ARG( JOINTID, joint ) ARG( QUAT, target ) ARG( VEC3, targetVelocity ) )
 B3_REC_OP( 0x83, SphericalJointSetDriveGains, RET_NONE, ARG( JOINTID, joint ) ARG( VEC3, kp ) ARG( VEC3, kd ) ARG( F32, maxTorque ) )
+B3_REC_OP( 0x84, SphericalJointSetDriveLoadScale, RET_NONE, ARG( JOINTID, joint ) ARG( F32, scale ) ARG( I32, subSteps ) )
 
 // Weld joint
 B3_REC_OP( 0xD5, WeldJointSetLinearHertz, RET_NONE, ARG( JOINTID, joint ) ARG( F32, hertz ) )

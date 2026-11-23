@@ -1585,6 +1585,11 @@ static void b3RecDispatch_SphericalJointSetDriveGains( const b3RecArgs_Spherical
 	b3SphericalJoint_SetDriveGains( b3RecMakeJointId( rdr, a->joint ), a->kp, a->kd, a->maxTorque );
 }
 
+static void b3RecDispatch_SphericalJointSetDriveLoadScale( const b3RecArgs_SphericalJointSetDriveLoadScale* a, b3RecReader* rdr )
+{
+	b3SphericalJoint_SetDriveLoadScale( b3RecMakeJointId( rdr, a->joint ), a->scale, a->subSteps );
+}
+
 static void b3RecDispatch_SphericalJointSetMaxMotorTorque( const b3RecArgs_SphericalJointSetMaxMotorTorque* a, b3RecReader* rdr )
 {
 	b3SphericalJoint_SetMaxMotorTorque( b3RecMakeJointId( rdr, a->joint ), a->torque );

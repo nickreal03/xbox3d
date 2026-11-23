@@ -229,6 +229,10 @@ typedef struct b3SphericalJoint
 	b3Vec3 driveTargetVelocity;
 	b3Vec3 driveKp, driveKd;
 	float driveMaxTorque;
+	// xLION law v2 (load scale): the drive's pair inverse inertia x driveLoadScale (1 = the stable PD as before, bit-identical); < 1 tells
+	// the law the joint moves more inertia than its two bodies (a stance leg carrying the body). Moved to its target over driveLoadScaleSteps sub-steps.
+	float driveLoadScale, driveLoadScaleStart, driveLoadScaleTarget;
+	int driveLoadScaleSteps, driveLoadScaleLeft;
 	b3Vec3 driveImpulse;
 
 	int indexA;

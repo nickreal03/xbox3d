@@ -244,6 +244,32 @@ void b3SphericalJoint_SetDriveGains( b3JointId jointId, b3Vec3 kp, b3Vec3 kd, fl
 	base->sphericalJoint.driveMaxTorque = maxTorque;
 }
 
+void b3SphericalJoint_SetDriveLoadScale( b3JointId jointId, float scale, int subSteps )
+{
+	B3_ASSERT( b3IsValidFloat( scale ) && scale > 0.0f && scale <= 1.0f && subSteps >= 0 );
+	b3World* world = b3GetWorld( jointId.world0 );
+	B3_REC( world, SphericalJointSetDriveLoadScale, jointId, scale, subSteps );
+	b3JointSim* base = b3GetJointSimCheckType( jointId, b3_sphericalJoint );
+	b3SphericalJoint* joint = &base->sphericalJoint;
+	if ( scale == joint->driveLoadScaleTarget )
+	{
+		return;
+	}
+	joint->driveLoadScaleStart = joint->driveLoadScale;
+	joint->driveLoadScaleTarget = scale;
+	joint->driveLoadScaleSteps = joint->driveLoadScaleLeft = subSteps;
+	if ( subSteps == 0 )
+	{
+		joint->driveLoadScale = scale;
+	}
+}
+
+float b3SphericalJoint_GetDriveLoadScale( b3JointId jointId )
+{
+	b3JointSim* base = b3GetJointSimCheckType( jointId, b3_sphericalJoint );
+	return base->sphericalJoint.driveLoadScale;
+}
+
 b3Vec3 b3SphericalJoint_GetDriveTorque( b3JointId jointId )
 {
 	b3World* world = b3GetWorld( jointId.world0 );
@@ -615,6 +641,17 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 		{
 			b3Matrix3 rA = b3MakeMatrixFromQuat( quatA );
 			b3Matrix3 invInertiaA = b3MulMM( b3Transpose( rA ), b3MulMM( invInertiaSum, rA ) );
+			if ( joint->driveLoadScaleLeft > 0 )
+			{
+				// law v2: the load scale moves linearly from its start to its target over the sub-steps asked
+				joint->driveLoadScaleLeft -= 1;
+				float t = (float)joint->driveLoadScaleLeft / (float)joint->driveLoadScaleSteps;
+				joint->driveLoadScale = joint->driveLoadScaleTarget + ( joint->driveLoadScaleStart - joint->driveLoadScaleTarget ) * t;
+			}
+			if ( joint->driveLoadScale != 1.0f )
+			{
+				invInertiaA = b3MulSM( joint->driveLoadScale, invInertiaA ); // law v2 (1: untouched - today's law bit for bit)
+			}
 			b3Vec3 tau = b3ComputeSphericalDriveTorque( relQ, b3InvRotateVector( quatA, cdot ), joint->driveTarget, joint->driveTargetVelocity,
 														joint->driveKp, joint->driveKd, joint->driveMaxTorque, context->h, invInertiaA );
 			b3Vec3 impulse = b3MulSV( context->h, b3RotateVector( quatA, tau ) );

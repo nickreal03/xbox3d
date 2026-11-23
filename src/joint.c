@@ -662,6 +662,7 @@ b3JointId b3CreateSphericalJoint( b3WorldId worldId, const b3SphericalJointDef* 
 	joint->sphericalJoint.enableTwistLimit = def->enableTwistLimit;
 	joint->sphericalJoint.enableMotor = def->enableMotor;
 	joint->sphericalJoint.driveTarget = b3Quat_identity;
+	joint->sphericalJoint.driveLoadScale = joint->sphericalJoint.driveLoadScaleStart = joint->sphericalJoint.driveLoadScaleTarget = 1.0f;
 
 	b3JointId jointId = { joint->jointId + 1, world->worldId, pair.joint->generation };
 	B3_REC_CREATE( world, CreateSphericalJoint, jointId, worldId, *def );

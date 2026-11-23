@@ -1638,6 +1638,12 @@ B3_API bool b3SphericalJoint_IsDriveEnabled( b3JointId jointId );
 B3_API void b3SphericalJoint_SetDriveTarget( b3JointId jointId, b3Quat target, b3Vec3 targetVelocity );
 /// Per-axis gains in frame A: kp in N m / rad, kd in N m s / rad; maxTorque in N m (0: no cap).
 B3_API void b3SphericalJoint_SetDriveGains( b3JointId jointId, b3Vec3 kp, b3Vec3 kd, float maxTorque );
+/// xLION law v2: the drive's pair inverse inertia is multiplied by scale in (0, 1] (1, the default: the stable PD above, bit for bit);
+/// scale < 1 makes the law treat the joint as moving more inertia than its two bodies (a load-bearing joint). The scale moves linearly
+/// from its current value to the new one over subSteps sub-steps (0: at once). Too small a scale overshoots (the torque is explicit).
+B3_API void b3SphericalJoint_SetDriveLoadScale( b3JointId jointId, float scale, int subSteps );
+/// The drive's load scale in force now.
+B3_API float b3SphericalJoint_GetDriveLoadScale( b3JointId jointId );
 /// The drive torque applied in the last sub-step, world frame, on body B (N m).
 B3_API b3Vec3 b3SphericalJoint_GetDriveTorque( b3JointId jointId );
 /// The drive law alone (frame A in, frame A out) - the reference the twin's copy is tested against. h: the sub-step (0: the explicit PD),
